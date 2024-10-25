@@ -1,88 +1,164 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+# UNet 
+# Take a noisy image at timestep t and return the predicted noise. 
 
-class UNetBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(UNetBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
+'''
+Things to Implement:
+[ ] Down-Conv Blocks
+[ ] Up- Conv Blocks
+[ ] Bottleneck Blocks
+[ ] Attention
+[ ] Skip Connections between Up and Down Sampling Blocks
+[ ] Time-Step embedding for input
+
+'''
+
+# Import relevant libraries
+print("Importing pandas...")
+import pandas as pd
+print("Importing numpy...")
+import numpy
+print("Importing torch libraries...")
+import torch 
+import torch.nn as nn
+import torchvision
+
+# Time Step Embedding
+def create_time_emb(time_step, emb_dim):
+    # Create a tensor of size emb_dim that use sinusoidal positional
+    #   encoding to capture a given time_step.
+    if emb_dim % 2 != 0:
+        return ValueError("Embedding dimension not divisible by 2.")
+
+    # Create factor
+    factor = 2 * torch.arange(start = 0, 
+                            end = emb_dim // 2, 
+                            dtype=torch.float32
+                            ) / (emb_dim)
+
+    # Exponentiate the 10000
+    factor = 10000 ** factor
+
+    time_emb = time_step[:,None] / factor # (B) > (B, t_emb_dim // 2)
+
+    # Concat sin and cos of the factor 
+    time_emb = torch.cat([torch.sin(time_emb), torch.cos(time_emb)], dim=1) # (B , t_emb_dim)
+
+    return time_emb
+
+class NormActConvNetwork(nn.Module):
+    def __init__(self, in_channels, out_channels, num_groups = 8, kernel_size = 3):
+        super(NormActConvNetwork, self).__init__()
+
+        # Group Normalization on batch
+        self.g_norm = nn.GroupNorm(num_groups, in_channels)
+
+        # Sigmoid Linear Unit Activation
+        self.silu = nn.SiLU()
+
+        # Convolution
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding = (kernel_size - 1) // 2)
 
     def forward(self, x):
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
+        x = self.g_norm(x)
+        x = self.silu(x)
+        x = self.conv(x)
         return x
+
+class TimeEmbedding(nn.Module):
+    def __init__(self, out_dim, t_emb_dim):
+        super(TimeEmbedding, self).__init__()
+
+        # Time Embedding Block
+        self.time_embed = nn.Sequential(
+            nn.SiLU(), 
+            nn.Linear(t_emb_dim, out_dim)
+        )
+
+    def forward(self, x):
+        return self.time_embed(x)
+    
+class SelfAttention(nn.Module):
+    def __init__(self, num_channels, num_groups = 8, num_heads = 4):
+        super(SelfAttention, self).__init__()
+
+        # Group Normalizations
+        self.g_norm = nn.GroupNorm(num_groups, num_channels)
+
+        # Self-Attetion
+        self.attn = nn.MultiheadAttention(num_channels, num_heads, batch_first=True)
+
+    def forward(self, x):
+        batch_size, channels, h, w = x.shape
+        x = x.reshape(batch_size, channels, h*w)
+
+        x = self.g_norm(x)
+        x = x.transpose(1, 2)
+        x, _ = self.attn(x, x, x) # query, key and value are all the same
 
 class DownSample(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, down_factor = 2):
         super(DownSample, self).__init__()
-        self.conv = UNetBlock(in_channels, out_channels)
-        self.pool = nn.MaxPool2d(2)
 
+        # Convolude to reduce dimensionality
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels, kernel_size=1),
+            nn.Conv2d(in_channels, 
+                out_channels // 2, 
+                kernel_size=4, 
+                stride = down_factor
+            )
+        )
+
+        # Maxpool to reduce dimensionality
+        self.mpool = nn.Sequential(
+            nn.MaxPool2d(down_factor, down_factor),
+            nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=1, padding=0)
+        )
     def forward(self, x):
-        x = self.conv(x)
-        x_down = self.pool(x)
-        return x_down, x
+        return torch.cat([self.conv(x), self.mpool(x)], dim=1)
 
 class UpSample(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, up_factor = 2):
         super(UpSample, self).__init__()
-        self.upconv = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
-        self.conv = UNetBlock(in_channels, out_channels)
 
-    def forward(self, x, skip_connection):
-        x = self.upconv(x)
-        x = torch.cat((x, skip_connection), dim=1)
-        x = self.conv(x)
-        return x
+        # Convolude to reduce dimensionality
+        self.conv = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_channels, out_channels,
+                kernel_size=4, stride=up_factor, padding=1
+            ),
+            nn.Conv2d(
+                out_channels//2, out_channels//2 ,
+                kernel_size = 1
+            )
+        )
 
-class UNet(nn.Module):
-    def __init__(self, in_channels=3, out_channels=3, base_channels=64):
-        super(UNet, self).__init__()
-
-        # Contracting path
-        self.down1 = DownSample(in_channels, base_channels)
-        self.down2 = DownSample(base_channels, base_channels * 2)
-        self.down3 = DownSample(base_channels * 2, base_channels * 4)
-        self.down4 = DownSample(base_channels * 4, base_channels * 8)
-
-        # Bottleneck
-        self.bottleneck = UNetBlock(base_channels * 8, base_channels * 16)
-
-        # Expansive path
-        self.up1 = UpSample(base_channels * 16, base_channels * 8)
-        self.up2 = UpSample(base_channels * 8, base_channels * 4)
-        self.up3 = UpSample(base_channels * 4, base_channels * 2)
-        self.up4 = UpSample(base_channels * 2, base_channels)
-
-        # Output layer
-        self.final_conv = nn.Conv2d(base_channels, out_channels, kernel_size=1)
-
+        # Maxpool to reduce dimensionality
+        self.up = nn.Sequential(
+            nn.Upsample(scale_factor=up_factor, mode='bilinear', align_corners=False),
+            nn.Conv2d(in_channels, out_channels//2, kernel_size=1)
+        )
     def forward(self, x):
-        # Contracting path
-        x1_down, x1 = self.down1(x)
-        x2_down, x2 = self.down2(x1_down)
-        x3_down, x3 = self.down3(x2_down)
-        x4_down, x4 = self.down4(x3_down)
+        return torch.cat([self.conv(x), self.mpool(x)], dim=1)
+    
+class DownConv(nn.Module):
+    def __init__(self, in_channels, out_channels, 
+                t_emb_dim = 128, num_layers = 2, 
+                down_sample = True):
+        super(DownConv, self).__init__()
 
-        # Bottleneck
-        x_bottleneck = self.bottleneck(x4_down)
+        self.num_layers = num_layers
 
-        # Expansive path
-        x_up1 = self.up1(x_bottleneck, x4)
-        x_up2 = self.up2(x_up1, x3)
-        x_up3 = self.up3(x_up2, x2)
-        x_up4 = self.up4(x_up3, x1)
+        self.conv1 = nn.ModuleList(
+            [NormActConvNetwork(
+                in_channels if i == 0 else out_channels, 
+                out_channels) 
+                for i in range(num_layers)]
+        )
+        self.conv2 = nn.ModuleList([
+            NormActConvNetwork(out_channels, out_channels) for i in range(num_layers)
+        ])
 
-        # Final output
-        output = self.final_conv(x_up4)
-        return output
-
-# Example usage:
-if __name__ == "__main__":
-    model = UNet()
-    input_image = torch.randn(1, 3, 256, 256) 
-    output_image = model(input_image)
-    print(output_image.shape)  
+        self.time_embed = nn.ModuleList([
+            TimeEmbedding(out_channels, t_emb_dim) for i in range(num_layers)
+        ])

@@ -83,6 +83,7 @@ if __name__ == "__main__":
     vae = VAE()
     to_pil = transforms.ToPILImage()
 
+    # Generate a random image
     random_image = torch.randn(1, 3, 256, 256)
     print(f"Original Image Shape: {random_image.shape}")
     to_pil(random_image.squeeze(0)).show()
