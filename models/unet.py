@@ -32,7 +32,7 @@ def create_time_emb(time_step, emb_dim):
     # Create factor
     factor = 2 * torch.arange(start = 0, 
                             end = emb_dim // 2, 
-                            dtype=torch.float32
+                            dtype=torch.float32,
                             ) / (emb_dim)
 
     # Exponentiate the 10000
@@ -94,6 +94,8 @@ class SelfAttention(nn.Module):
         x = self.g_norm(x)
         x = x.transpose(1, 2)
         x, _ = self.attn(x, x, x) # query, key and value are all the same
+        x = x.transpose(1, 2).reshape(batch_size, channels, h, w)
+        return x
 
 class DownSample(nn.Module):
     def __init__(self, in_channels, out_channels, down_factor = 2):
@@ -105,7 +107,8 @@ class DownSample(nn.Module):
             nn.Conv2d(in_channels, 
                 out_channels // 2, 
                 kernel_size=4, 
-                stride = down_factor
+                stride = down_factor,
+                padding=1
             )
         )
 
@@ -124,22 +127,22 @@ class UpSample(nn.Module):
         # Convolude to reduce dimensionality
         self.conv = nn.Sequential(
             nn.ConvTranspose2d(
-                in_channels, out_channels,
+                in_channels, out_channels//2,
                 kernel_size=4, stride=up_factor, padding=1
             ),
             nn.Conv2d(
                 out_channels//2, out_channels//2 ,
-                kernel_size = 1
+                kernel_size = 1, padding = 0
             )
         )
 
         # Maxpool to reduce dimensionality
         self.up = nn.Sequential(
             nn.Upsample(scale_factor=up_factor, mode='bilinear', align_corners=False),
-            nn.Conv2d(in_channels, out_channels//2, kernel_size=1)
+            nn.Conv2d(in_channels, out_channels//2, kernel_size=1, padding = 0)
         )
     def forward(self, x):
-        return torch.cat([self.conv(x), self.mpool(x)], dim=1)
+        return torch.cat([self.conv(x), self.up(x)], dim=1)
     
 class DownConv(nn.Module):
     def __init__(self, in_channels, out_channels, 
@@ -183,8 +186,10 @@ class DownConv(nn.Module):
             x = x + self.final_block[i](res_input)
 
             # self attention
-            res_attn = self.attn_block[i](res_input)
+            res_attn = self.attn_block[i](x)
             x = x + res_attn
+
+        x = self.down_block(x)
 
         return x
     
@@ -203,7 +208,7 @@ class Bottleneck(nn.Module):
             [NormActConvNetwork(out_channels, out_channels) for i in range(num_layers + 1)]
         )
         self.time_embed_block = nn.ModuleList(
-            [TimeEmbedding(out_channels, t_emb_dim) for i in range(num_layers)]
+            [TimeEmbedding(out_channels, t_emb_dim) for i in range(num_layers + 1)]
         )
         self.attn_block = nn.ModuleList(
             [SelfAttention(out_channels) for i in range(num_layers)]
@@ -217,7 +222,7 @@ class Bottleneck(nn.Module):
 
     # First-Resnet Block
         x = self.conv1[0](x)
-        x = x + self.time_embed_block[0](time_embed)
+        x = x + self.time_embed_block[0](time_embed)[:, :, None, None]
         x = self.conv2[0](x)
         x = x + self.res_block[0](resnet_input)
 
@@ -230,7 +235,7 @@ class Bottleneck(nn.Module):
             # Resnet Block
             resnet_input = x
             x = self.conv1[i+1](x)
-            x = x + self.te_block[i+1](time_embed)[:, :, None, None]
+            x = x + self.time_embed_block[i+1](time_embed)[:, :, None, None]
             x = self.conv2[i+1](x)
             x = x + self.res_block[i+1](resnet_input)
 
