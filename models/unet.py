@@ -13,11 +13,11 @@ Things to Implement:
 '''
 
 # Import relevant libraries
-print("Importing pandas...")
-import pandas as pd
-print("Importing numpy...")
+# print("Importing pandas...")
+# import pandas as pd
+# print("Importing numpy...")
 import numpy
-print("Importing torch libraries...")
+# print("Importing torch libraries...")
 import torch 
 import torch.nn as nn
 import torchvision
@@ -318,7 +318,11 @@ class UNet(nn.Module):
 
         self.up_sample = list(reversed(self.down_sample))
 
-        # Get VAE output here
+        '''
+        ----
+        TODO!: Get VAE output here!!!
+        ----
+        '''
 
         # For now, using a simple conv because it kept breaking
         self.cv1 = nn.Conv2d(self.in_channels, self.down_ch[0], kernel_size=3, padding=1)
@@ -370,36 +374,37 @@ class UNet(nn.Module):
         
     def forward(self, x, t):
         
-        out = self.cv1(x)
+        x = self.cv1(x)
         
-        # Time Projection
+        # Time Step
         t_emb = create_time_emb(t, self.t_emb_dim)
         t_emb = self.t_proj(t_emb)
         
-        # DownC outputs
-        down_outs = []
-        
+        # Down section. Storing skip connection values. 
+        down_outs = []        
         for down in self.downs:
-            down_outs.append(out)
-            out = down(out, t_emb)
+            down_outs.append(x)
+            x = down(x, t_emb)
         
-        # MidC outputs
+        # Bottle neck
         for mid in self.mids:
-            out = mid(out, t_emb)
+            x = mid(x, t_emb)
         
-        # UpC Blocks
+        # Up section. Using skip connections
         for up in self.ups:
             down_out = down_outs.pop()
-            out = up(out, down_out, t_emb)
+            x = up(x, down_out, t_emb)
             
-        # Final Conv
-        out = self.cv2(out)
+        x = self.cv2(x)
         
-        return out
+        return x
 
+
+from models.vae import VAE
 if __name__ == "__main__":
     # Create a UNet model instance
     model = UNet()
+    vae = VAE()
 
     # Create a random tensor for input (Batch Size, Channels, Height, Width)
     x = torch.randn(4, 1, 32, 32)  # Batch of 4 images, 1 channel (grayscale), 32x32 resolution
@@ -407,8 +412,16 @@ if __name__ == "__main__":
     # Create a random tensor for the time steps (Batch Size,)
     t = torch.randint(0, 10, (4,))  # Random time steps for each image in the batch
 
+    # Encode input with VAE
+    mean, var = VAE.encode(self=vae, input_tensor=x)
+    latent_input = vae.reparameterize(mean, var)
+
     # Forward pass
-    output = model(x, t)
+    latent_output = model(latent_input, t)
+
+    # Decode output
+    output = VAE.decode(latent_input)
+
     print(f"Output shape: {output.shape}")
 
     # Check output values

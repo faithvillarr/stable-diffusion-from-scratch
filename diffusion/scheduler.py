@@ -3,5 +3,5 @@ class NoiseScheduler:
         self.timesteps = timesteps
 
     def get_noise_level(self, t):
-        # Define a noise schedule (e.g., linear, cosine)
+        # Define a noise schedule
         return noise_level

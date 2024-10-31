@@ -82,6 +82,9 @@ class VAE(nn.Module):
 if __name__ == "__main__":
     vae = VAE()
     to_pil = transforms.ToPILImage()
+    to_tensor = transforms.ToTensor()
+
+    
 
     # Generate a random image
     random_image = torch.randn(1, 3, 256, 256)
