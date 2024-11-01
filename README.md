@@ -51,6 +51,19 @@ where $$p(z)$$ is the prior distribution of the latent variable $$z$$ given the 
 
 Since we cannot integrate this equation, we instead **minimize the  negative log-likelihood** rather than **maximize the likelihood**.
 
+This leads us to the **Evidence Lower Bound (ELBO)**, a tractable objective often used in VAEs, which decomposes the negative log-likelihood into two terms:
+
+1. **Reconstruction Loss**: This measures how well the model can reconstruct the input image from the latent representation.
+2. **KL Divergence**: This regularizes the distribution of the latent variable $$z$$, ensuring it closely resembles the prior distribution (usually a standard normal distribution). 
+
+The ELBO loss is then given by:
+
+$$\mathcal{L}_{\text{VAE}} = - \mathbb{E} _{q _\phi(z|x)} [ \log p _\theta (x|z) ] + D _{ \text{KL}} ( q _\phi(z|x) \mid p(z) )$$
+
+where:
+- The **expectation** term corresponds to the reconstruction loss.
+- The **KL divergence** term measures how closely the learned distribution $$q_\phi(z|x)$$ approximates the prior $$p(z) = \mathcal{N}(0, 1)$$.
+
 ### The U-Net: A Noise Predicting Model
 
 In the Stable Diffusion pipeline, the **U-Net** is used to predict the noise present in an image during the reverse diffusion process. As we iteratively remove noise, the U-Net learns to adjust its predictions in line with the characteristics of the image being generated.
