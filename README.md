@@ -2,6 +2,8 @@
 
 **Goal:** Create and train a stable diffusion model using just PyTorch and OpenAI's CLIP model for text embedding. 
 
+
+
 ## Understanding the Core Components of Stable Diffusion
 ### The Variational Autoencoder
 [**General Idea**]The Variational Autoencoder or VAE is a model which maps to a latent space which is fed further into the diffusion process. The encoder takes a tensor of a 256px x 256px image and turns it into a latent vector. This vector, after being processed by the rest of the model, is fed into the decoder to retrieve the final outputted image.  
