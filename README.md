@@ -52,6 +52,53 @@ where $$p(z)$$ is the prior distribution of the latent variable $$z$$ given the 
 Since we cannot integrate this equation, we instead **minimize the  negative log-likelihood** rather than **maximize the likelihood**.
 
 
-#### The U-Net: A Noise Predicting Model
-The attempt
+Sure, let's continue with the description in the same style, moving on to the **U-Net** architecture and how it operates as a noise-predicting model within the Stable Diffusion process.
+
+---
+
+### The U-Net: A Noise Predicting Model
+
+In the Stable Diffusion pipeline, the **U-Net** is used to predict the noise present in an image during the reverse diffusion process. As we iteratively remove noise, the U-Net learns to adjust its predictions in line with the characteristics of the image being generated.
+
+The core idea of the U-Net architecture is a **downsampling and upsampling pathway** that allows for both **local** and **global context** extraction, making it particularly effective for generating high-quality images with fine-grained details. 
+
+#### Downsampling Path
+
+This part of the U-Net reduces the spatial resolution, capturing the image's global structure. It consists of several convolutional layers with pooling operations that reduce the image’s dimensions. The output of each stage is known as a “feature map,” which captures patterns in the image at various resolutions.
+
+#### Upsampling Path
+
+After reaching the lowest resolution in the downsampling path, the network performs a **series of upsampling operations**. This pathway reconstructs the spatial dimensions of the image, adding back the details. Importantly, the U-Net **concatenates the feature maps** from the downsampling pathway to each corresponding layer in the upsampling path. This skip connection mechanism gives the model access to high-resolution details from the input image.
+
+The final layer in the U-Net outputs a **noise prediction** for each pixel in the latent representation. This noise prediction is used to iteratively denoise the image as it progresses through the diffusion process. 
+
+#### U-Net Notation and Diffusion Process
+
+Let:
+- $$ x_t $$ represent the noisy image at time step $$ t $$.
+- $$ \epsilon_\theta(x_t, t) $$ be the U-Net’s predicted noise at time step $$ t $$.
+  
+The model denoises by iteratively subtracting the predicted noise from each image at step $$ t $$, following:
+
+$$ x_{t-1} = x_t - \epsilon_\theta(x_t, t) $$
+
+This iterative process, combined with the VAE’s latent space, allows for controlled, gradual refinement of the image, enhancing coherence and detail with each step. 
+
+#### Diffusion Loss
+
+To guide the U-Net in predicting the correct noise at each time step, the model minimizes a **mean squared error (MSE) loss** between the true noise $$ \epsilon $$ and the predicted noise $$ \epsilon_\theta(x_t, t) $$:
+
+$$ L_{\text{diffusion}} = \mathbb{E}_{x, \epsilon, t}\left[ \|\epsilon - \epsilon_\theta(x_t, t)\|^2 \right] $$
+
+This loss function trains the U-Net to accurately predict the noise, making it effective at denoising the image across the diffusion process.
+
+### The Full Diffusion Process
+
+The Stable Diffusion model combines the **VAE** and **U-Net** to create a generative process that can start from a pure noise vector and iteratively denoise it into a coherent image. The **encoder** maps the image into a latent space, where noise is injected, and the **decoder** reconstructs the image from the latent vector produced by the U-Net. 
+
+1. **Encode**: An input image $$ x $$ is encoded into a latent vector $$ z $$ by the VAE encoder.
+2. **Diffuse**: Noise is iteratively added to $$ z $$, reaching a point where the image is unrecognizable.
+3. **Reverse Diffusion**: The U-Net takes over, predicting and removing noise at each step until a clean latent vector is recovered.
+4. **Decode**: The VAE decoder then reconstructs the final image from the denoised latent vector, generating the model’s output.
+
 
